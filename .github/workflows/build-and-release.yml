@@ -1,0 +1,77 @@
+name: Build and Release (macOS + Windows)
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build-and-package:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Download JavaFX SDK
+        run: |
+          set -e
+          if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            FX_URL="https://download2.gluonhq.com/openjfx/25.0.1/openjfx-25.0.1_macos-x64_bin-sdk.zip"
+          else
+            FX_URL="https://download2.gluonhq.com/openjfx/25.0.1/openjfx-25.0.1_windows-x64_bin-sdk.zip"
+          fi
+          curl -L -o javafx-sdk.zip "$FX_URL"
+          unzip javafx-sdk.zip -d javafx-sdk
+
+      - name: Compile
+        run: |
+          javac --module-path javafx-sdk/lib --add-modules javafx.controls Main.java
+          jar --create --file Main.jar --main-class Main *.class
+
+      - name: Try jpackage (create native installer)
+        shell: bash
+        run: |
+          set -e || true
+          mkdir -p dist
+          if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            jpackage --input . --name ExpenseSplitter --main-jar Main.jar --main-class Main \
+              --module-path javafx-sdk/lib --add-modules javafx.controls --type dmg --dest dist || true
+          else
+            jpackage --input . --name ExpenseSplitter --main-jar Main.jar --main-class Main \
+              --module-path javafx-sdk/lib --add-modules javafx.controls --type msi --dest dist || true
+          fi
+
+      - name: Create fallback ZIP if no installer
+        run: |
+          mkdir -p dist
+          if [ -z "$(ls -A dist 2>/dev/null)" ]; then
+            zip -r dist/ExpenseSplitter-${{ github.ref_name }}.zip Main.jar README.md Main.java
+          fi
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
