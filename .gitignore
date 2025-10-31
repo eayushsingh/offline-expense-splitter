@@ -1,0 +1,10 @@
+# macOS/system
+.DS_Store
+
+# build/artifacts
+dist/
+*.dmg
+*.msi
+*.zip
+*.exe
+*.jar
