@@ -23,25 +23,37 @@ jobs:
           java-version: '17'
 
       - name: Download JavaFX SDK
+        shell: bash
         run: |
-          set -e
+          set -euo pipefail
           if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
             FX_URL="https://download2.gluonhq.com/openjfx/25.0.1/openjfx-25.0.1_macos-x64_bin-sdk.zip"
           else
             FX_URL="https://download2.gluonhq.com/openjfx/25.0.1/openjfx-25.0.1_windows-x64_bin-sdk.zip"
           fi
           curl -L -o javafx-sdk.zip "$FX_URL"
-          unzip javafx-sdk.zip -d javafx-sdk
+          rm -rf javafx-sdk
+          mkdir -p javafx-sdk
+          unzip -q javafx-sdk.zip -d javafx-sdk
+          # The zip contains a nested folder like javafx-sdk/javafx-sdk-25.0.1; normalize to javafx-sdk/lib
+          FX_NESTED_DIR="$(find javafx-sdk -maxdepth 2 -type d -name 'javafx-sdk-*' | head -n 1)"
+          if [[ -n "${FX_NESTED_DIR}" && -d "${FX_NESTED_DIR}/lib" ]]; then
+            rm -rf javafx-sdk/lib
+            mv "${FX_NESTED_DIR}/lib" javafx-sdk/lib
+          fi
+          test -d javafx-sdk/lib
 
       - name: Compile
+        shell: bash
         run: |
+          set -euo pipefail
           javac --module-path javafx-sdk/lib --add-modules javafx.controls Main.java
           jar --create --file Main.jar --main-class Main *.class
 
       - name: Try jpackage (create native installer)
         shell: bash
         run: |
-          set -e || true
+          set -euo pipefail
           mkdir -p dist
           if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
             jpackage --input . --name ExpenseSplitter --main-jar Main.jar --main-class Main \
@@ -52,22 +64,13 @@ jobs:
           fi
 
       - name: Create fallback ZIP if no installer
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p dist
-          if [ -z "$(ls -A dist 2>/dev/null)" ]; then
-            zip -r dist/ExpenseSplitter-${{ github.ref_name }}.zip Main.jar README.md Main.java
+          if [[ -z "$(ls -A dist 2>/dev/null)" ]]; then
+            zip -r "dist/ExpenseSplitter-${{ github.ref_name }}.zip" Main.jar Main.java RELEASE_INSTRUCTIONS.md .github/workflows/build-and-release.yml || true
           fi
-
-      - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref_name }}
-          release_name: ${{ github.ref_name }}
-          draft: false
-          prerelease: false
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v1
