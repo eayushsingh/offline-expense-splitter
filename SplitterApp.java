@@ -45,7 +45,7 @@ public class SplitterApp extends Application {
 
         splitBtn.setOnAction(e -> {
             if (expenses.isEmpty()) {
-                showAlert("No Data", "Add some expenses first!");
+                showAlert("No Data Found", "Add some expenses first!");
                 return;
             }
 
